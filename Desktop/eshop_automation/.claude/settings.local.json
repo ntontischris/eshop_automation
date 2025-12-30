@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(claude mcp add context7 --transport stdio -- cmd /c npx -y @upstash/context7-mcp)",
+      "Bash(claude mcp list:*)",
+      "Bash(claude mcp remove:*)",
+      "WebSearch",
+      "Bash(npx:*)",
+      "WebFetch(domain:docs.n8n.io)",
+      "WebFetch(domain:n8n.io)",
+      "WebFetch(domain:hackceleration.com)",
+      "WebFetch(domain:woocommerce.github.io)",
+      "Bash(dir /b \"C:\\\\Users\\\\Desktop\\\\Desktop\\\\eshop_automation\\\\knowledge_base\")",
+      "WebFetch(domain:sms.yuboto.com)",
+      "WebFetch(domain:messaging.yuboto.com)",
+      "WebFetch(domain:octapush.yuboto.com)",
+      "WebFetch(domain:whitelabel.yuboto.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:www.yuboto-telephony.gr)",
+      "WebFetch(domain:docs.vapi.ai)",
+      "WebFetch(domain:www.yuboto.com)",
+      "Bash(git remote add:*)",
+      "Bash(git push:*)",
+      "Bash(git checkout:*)",
+      "Bash(git reset:*)",
+      "Bash(dir:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git branch:*)"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "context7"
+  ]
+}

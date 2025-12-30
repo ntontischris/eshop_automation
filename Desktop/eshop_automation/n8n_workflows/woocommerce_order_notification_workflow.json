@@ -1,0 +1,240 @@
+{
+  "name": "WooCommerce New Order - Multi-Channel Notifications",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "woocommerce-new-order",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "WooCommerce Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "woo-order-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse WooCommerce order data\nconst order = $input.first().json.body || $input.first().json;\n\n// Extract order details\nconst orderData = {\n  order_id: order.id || order.order_id,\n  order_number: order.number || order.order_number || order.id,\n  status: order.status,\n  total: parseFloat(order.total || 0),\n  currency: order.currency || 'EUR',\n  payment_method: order.payment_method_title || order.payment_method,\n  \n  // Customer info\n  customer_name: `${order.billing?.first_name || ''} ${order.billing?.last_name || ''}`.trim(),\n  customer_email: order.billing?.email || '',\n  customer_phone: order.billing?.phone || '',\n  \n  // Billing address\n  billing_address: [\n    order.billing?.address_1,\n    order.billing?.address_2,\n    order.billing?.city,\n    order.billing?.postcode,\n    order.billing?.country\n  ].filter(Boolean).join(', '),\n  \n  // Shipping address\n  shipping_address: [\n    order.shipping?.address_1,\n    order.shipping?.address_2,\n    order.shipping?.city,\n    order.shipping?.postcode,\n    order.shipping?.country\n  ].filter(Boolean).join(', '),\n  \n  // Order items\n  items: (order.line_items || []).map(item => ({\n    name: item.name,\n    quantity: item.quantity,\n    price: parseFloat(item.total || 0),\n    sku: item.sku || 'N/A'\n  })),\n  \n  // Formatted items for display\n  items_formatted: (order.line_items || []).map(item => \n    `• ${item.name} x${item.quantity} - €${parseFloat(item.total || 0).toFixed(2)}`\n  ).join('\\n'),\n  \n  // Additional info\n  customer_note: order.customer_note || '',\n  date_created: order.date_created || new Date().toISOString(),\n  \n  // VIP flag\n  is_vip_order: parseFloat(order.total || 0) > 200\n};\n\nreturn { json: orderData };"
+      },
+      "id": "parse-order",
+      "name": "Parse Order Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"channel\": \"#orders\",\n  \"blocks\": [\n    {\n      \"type\": \"header\",\n      \"text\": {\n        \"type\": \"plain_text\",\n        \"text\": \"🛒 Νέα Παραγγελία #{{ $json.order_number }}\",\n        \"emoji\": true\n      }\n    },\n    {\n      \"type\": \"section\",\n      \"fields\": [\n        {\n          \"type\": \"mrkdwn\",\n          \"text\": \"*Πελάτης:*\\n{{ $json.customer_name }}\"\n        },\n        {\n          \"type\": \"mrkdwn\",\n          \"text\": \"*Σύνολο:*\\n€{{ $json.total.toFixed(2) }}\"\n        },\n        {\n          \"type\": \"mrkdwn\",\n          \"text\": \"*Email:*\\n{{ $json.customer_email }}\"\n        },\n        {\n          \"type\": \"mrkdwn\",\n          \"text\": \"*Τηλέφωνο:*\\n{{ $json.customer_phone }}\"\n        },\n        {\n          \"type\": \"mrkdwn\",\n          \"text\": \"*Τρόπος Πληρωμής:*\\n{{ $json.payment_method }}\"\n        },\n        {\n          \"type\": \"mrkdwn\",\n          \"text\": \"*Κατάσταση:*\\n{{ $json.status }}\"\n        }\n      ]\n    },\n    {\n      \"type\": \"divider\"\n    },\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": \"*📦 Προϊόντα:*\\n{{ $json.items_formatted }}\"\n      }\n    },\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": \"*📍 Διεύθυνση Αποστολής:*\\n{{ $json.shipping_address }}\"\n      }\n    },\n    {{ $json.customer_note ? '{\"type\": \"section\", \"text\": {\"type\": \"mrkdwn\", \"text\": \"*📝 Σημείωση Πελάτη:*\\\\n' + $json.customer_note + '\"}},' : '' }}\n    {\n      \"type\": \"context\",\n      \"elements\": [\n        {\n          \"type\": \"mrkdwn\",\n          \"text\": \"Ημερομηνία: {{ $json.date_created }}\"\n        }\n      ]\n    }\n  ]\n}"
+      },
+      "id": "slack-orders",
+      "name": "Slack #orders",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [750, 200],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "slack-bot-token",
+          "name": "Slack Bot Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SMS_API_URL || 'https://api.yuboto.com/sms/send' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"to\": \"{{ $env.WAREHOUSE_PHONE || '+306912345678' }}\",\n  \"from\": \"ESHOP\",\n  \"message\": \"📦 ΝΕΑ ΠΑΡΑΓΓΕΛΙΑ #{{ $json.order_number }}\\n{{ $json.customer_name }}\\n€{{ $json.total.toFixed(2) }}\\n{{ $json.items.length }} προϊόντα\\nΔιεύθυνση: {{ $json.shipping_address.substring(0, 80) }}\"\n}"
+      },
+      "id": "sms-warehouse",
+      "name": "SMS Warehouse",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [750, 350],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "sms-api-key",
+          "name": "SMS API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID || '1ABC...xyz' }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Orders Log",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Order ID": "={{ $json.order_id }}",
+            "Order Number": "={{ $json.order_number }}",
+            "Date": "={{ $json.date_created }}",
+            "Customer Name": "={{ $json.customer_name }}",
+            "Customer Email": "={{ $json.customer_email }}",
+            "Customer Phone": "={{ $json.customer_phone }}",
+            "Billing Address": "={{ $json.billing_address }}",
+            "Shipping Address": "={{ $json.shipping_address }}",
+            "Items": "={{ $json.items.map(i => `${i.name} x${i.quantity}`).join('; ') }}",
+            "Total": "={{ $json.total }}",
+            "Currency": "={{ $json.currency }}",
+            "Payment Method": "={{ $json.payment_method }}",
+            "Status": "={{ $json.status }}",
+            "Customer Note": "={{ $json.customer_note }}",
+            "VIP Order": "={{ $json.is_vip_order ? 'YES' : 'NO' }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "google-sheets",
+      "name": "Google Sheets - Orders Log",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [750, 500],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-creds",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.is_vip_order }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "vip-check",
+      "name": "VIP Order Check (>200€)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [750, 650]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"channel\": \"#vip-orders\",\n  \"blocks\": [\n    {\n      \"type\": \"header\",\n      \"text\": {\n        \"type\": \"plain_text\",\n        \"text\": \"⭐ VIP ΠΑΡΑΓΓΕΛΙΑ #{{ $json.order_number }}\",\n        \"emoji\": true\n      }\n    },\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": \"*🎉 Μεγάλη παραγγελία άνω των €200!*\"\n      }\n    },\n    {\n      \"type\": \"section\",\n      \"fields\": [\n        {\n          \"type\": \"mrkdwn\",\n          \"text\": \"*Πελάτης:*\\n{{ $json.customer_name }}\"\n        },\n        {\n          \"type\": \"mrkdwn\",\n          \"text\": \"*Σύνολο:*\\n💰 €{{ $json.total.toFixed(2) }}\"\n        },\n        {\n          \"type\": \"mrkdwn\",\n          \"text\": \"*Email:*\\n{{ $json.customer_email }}\"\n        },\n        {\n          \"type\": \"mrkdwn\",\n          \"text\": \"*Τηλέφωνο:*\\n{{ $json.customer_phone }}\"\n        }\n      ]\n    },\n    {\n      \"type\": \"divider\"\n    },\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": \"*📦 Προϊόντα:*\\n{{ $json.items_formatted }}\"\n      }\n    },\n    {\n      \"type\": \"actions\",\n      \"elements\": [\n        {\n          \"type\": \"button\",\n          \"text\": {\n            \"type\": \"plain_text\",\n            \"text\": \"📞 Κάλεσε Πελάτη\"\n          },\n          \"url\": \"tel:{{ $json.customer_phone }}\"\n        },\n        {\n          \"type\": \"button\",\n          \"text\": {\n            \"type\": \"plain_text\",\n            \"text\": \"📧 Στείλε Email\"\n          },\n          \"url\": \"mailto:{{ $json.customer_email }}\"\n        }\n      ]\n    }\n  ]\n}"
+      },
+      "id": "slack-vip",
+      "name": "Slack #vip-orders",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1000, 600],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "slack-bot-token",
+          "name": "Slack Bot Token"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "WooCommerce Webhook": {
+      "main": [
+        [
+          {
+            "node": "Parse Order Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Order Data": {
+      "main": [
+        [
+          {
+            "node": "Slack #orders",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "SMS Warehouse",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Google Sheets - Orders Log",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "VIP Order Check (>200€)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "VIP Order Check (>200€)": {
+      "main": [
+        [
+          {
+            "node": "Slack #vip-orders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": ["woocommerce", "orders", "notifications", "slack", "sms"],
+  "triggerCount": 1
+}
