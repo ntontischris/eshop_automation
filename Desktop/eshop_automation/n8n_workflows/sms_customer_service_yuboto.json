@@ -1,0 +1,407 @@
+{
+  "name": "📱 SMS Customer Service - Yuboto",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "sms-customer-service",
+        "options": {
+          "responseMode": "responseNode"
+        }
+      },
+      "id": "sms-webhook",
+      "name": "📱 SMS Webhook (Yuboto)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 400],
+      "webhookId": "sms-customer-service"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse incoming SMS from Yuboto\nconst input = $input.first().json;\n\n// Yuboto sends SMS in various formats\nconst message = input.text || input.message || input.body || '';\nconst from = input.from || input.sender || input.msisdn || '';\nconst messageId = input.message_id || input.id || '';\n\n// Clean phone number\nconst cleanPhone = from.replace(/[^0-9+]/g, '');\n\n// Detect intent from message\nlet intent = 'general';\nconst lowerMessage = message.toLowerCase();\n\nif (lowerMessage.match(/παραγγελ|order|πού είναι|που ειναι|tracking/)) {\n  intent = 'order_tracking';\n} else if (lowerMessage.match(/stock|διαθέσιμο|διαθεσιμο|έχετε|εχετε|υπάρχει/)) {\n  intent = 'stock_check';\n} else if (lowerMessage.match(/τιμή|τιμη|price|κόστος|κοστος|πόσο|ποσο/)) {\n  intent = 'price_inquiry';\n} else if (lowerMessage.match(/επιστροφ|return|ακύρ|ακυρ|cancel/)) {\n  intent = 'return_request';\n}\n\n// Extract order number if present\nconst orderMatch = message.match(/#?(\\d{4,})/)\nconst orderNumber = orderMatch ? orderMatch[1] : null;\n\nreturn {\n  json: {\n    message,\n    from: cleanPhone,\n    messageId,\n    intent,\n    orderNumber,\n    timestamp: new Date().toISOString()\n  }\n};"
+      },
+      "id": "parse-sms",
+      "name": "🔍 Parse SMS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "order",
+              "leftValue": "={{ $json.intent }}",
+              "rightValue": "order_tracking",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "stock",
+              "leftValue": "={{ $json.intent }}",
+              "rightValue": "stock_check",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "price",
+              "leftValue": "={{ $json.intent }}",
+              "rightValue": "price_inquiry",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        }
+      },
+      "id": "route-intent",
+      "name": "🔀 Route by Intent",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [600, 400]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $credentials.woocommerceApi.url }}/wp-json/wc/v3/orders/{{ $('🔍 Parse SMS').item.json.orderNumber }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "id": "woo-order",
+      "name": "🛒 Get Order",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [850, 250],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "WOO_CREDENTIAL_ID",
+          "name": "WooCommerce API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst phone = $('🔍 Parse SMS').item.json.from;\n\nif (response.statusCode === 404 || !response.body || response.body.code) {\n  return {\n    json: {\n      to: phone,\n      message: 'Δεν βρεθηκε παραγγελια. Ελεγξτε τον αριθμο και στειλτε ξανα.'\n    }\n  };\n}\n\nconst order = response.body;\nconst statusMap = {\n  'pending': 'Αναμονη πληρωμης',\n  'processing': 'Ετοιμαζεται',\n  'on-hold': 'Σε αναμονη',\n  'completed': 'Ολοκληρωθηκε',\n  'shipped': 'Απεσταλη',\n  'cancelled': 'Ακυρωθηκε'\n};\n\nconst status = statusMap[order.status] || order.status;\nconst trackingMeta = order.meta_data?.find(m => m.key.includes('tracking'));\nconst tracking = trackingMeta ? ` Tracking: ${trackingMeta.value}` : '';\n\n// SMS max 160 chars\nconst message = `Παραγγελια #${order.id}: ${status}. Συνολο: ${order.total}€.${tracking}`.substring(0, 160);\n\nreturn { json: { to: phone, message } };"
+      },
+      "id": "format-order-sms",
+      "name": "📝 Format Order SMS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 250]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $credentials.woocommerceApi.url }}/wp-json/wc/v3/products",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "search",
+              "value": "={{ $('🔍 Parse SMS').item.json.message }}"
+            },
+            {
+              "name": "per_page",
+              "value": "3"
+            },
+            {
+              "name": "status",
+              "value": "publish"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "woo-stock",
+      "name": "🛒 Check Stock",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [850, 400],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "WOO_CREDENTIAL_ID",
+          "name": "WooCommerce API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const products = $input.first().json;\nconst phone = $('🔍 Parse SMS').item.json.from;\n\nif (!products || products.length === 0) {\n  return {\n    json: {\n      to: phone,\n      message: 'Δεν βρεθηκε προιον. Στειλτε το ονομα του προιοντος.'\n    }\n  };\n}\n\nconst inStock = products.filter(p => p.stock_status === 'instock');\n\nif (inStock.length > 0) {\n  const p = inStock[0];\n  const message = `${p.name}: ${p.price}€ - ΔΙΑΘΕΣΙΜΟ${p.stock_quantity ? ` (${p.stock_quantity} τεμ.)` : ''}`.substring(0, 160);\n  return { json: { to: phone, message } };\n} else {\n  const p = products[0];\n  return { json: { to: phone, message: `${p.name}: Προσωρινα μη διαθεσιμο. Στειλτε NOTIFY για ειδοποιηση.` } };\n}"
+      },
+      "id": "format-stock-sms",
+      "name": "📝 Format Stock SMS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const phone = $('🔍 Parse SMS').item.json.from;\nconst message = $('🔍 Parse SMS').item.json.message;\n\n// For price inquiries, we need product search\n// This is a simplified response asking for more info\nreturn {\n  json: {\n    to: phone,\n    message: 'Για τιμες, στειλτε το ακριβες ονομα ή κωδικο προιοντος. Επισκεφθειτε: eshop.gr/products'\n  }\n};"
+      },
+      "id": "format-price-sms",
+      "name": "📝 Format Price SMS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 550]
+    },
+    {
+      "parameters": {
+        "jsCode": "const phone = $('🔍 Parse SMS').item.json.from;\nconst message = $('🔍 Parse SMS').item.json.message;\n\n// Default response for general inquiries\nreturn {\n  json: {\n    to: phone,\n    message: 'Ευχαριστουμε! Στειλτε: ΠΑΡΑΓΓΕΛΙΑ+αριθμο για tracking, STOCK+προιον για διαθεσιμοτητα. Η καλεστε 210-ΧΧΧΧΧΧΧ.'\n  }\n};"
+      },
+      "id": "format-general-sms",
+      "name": "📝 Format General SMS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 700]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://omni.yuboto.com/api/v1/send",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $credentials.yubotoApi.apiKey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"to\": \"{{ $json.to }}\",\n  \"text\": \"{{ $json.message }}\",\n  \"from\": \"ESHOP\"\n}",
+        "options": {}
+      },
+      "id": "send-sms",
+      "name": "📤 Send SMS (Yuboto)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1300, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"message\": \"SMS queued\"\n}",
+        "options": {}
+      },
+      "id": "respond-webhook",
+      "name": "📤 Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1500, 400]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "SMS_Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $now.toISO() }}",
+            "From": "={{ $('🔍 Parse SMS').item.json.from }}",
+            "Message In": "={{ $('🔍 Parse SMS').item.json.message }}",
+            "Intent": "={{ $('🔍 Parse SMS').item.json.intent }}",
+            "Response": "={{ $json.message }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "log-sheets",
+      "name": "📊 Log to Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [1300, 600],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_CREDENTIAL_ID",
+          "name": "Google Sheets"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "📱 SMS Webhook (Yuboto)": {
+      "main": [
+        [
+          {
+            "node": "🔍 Parse SMS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔍 Parse SMS": {
+      "main": [
+        [
+          {
+            "node": "🔀 Route by Intent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔀 Route by Intent": {
+      "main": [
+        [
+          {
+            "node": "🛒 Get Order",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "🛒 Check Stock",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "📝 Format Price SMS",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "📝 Format General SMS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🛒 Get Order": {
+      "main": [
+        [
+          {
+            "node": "📝 Format Order SMS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📝 Format Order SMS": {
+      "main": [
+        [
+          {
+            "node": "📤 Send SMS (Yuboto)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🛒 Check Stock": {
+      "main": [
+        [
+          {
+            "node": "📝 Format Stock SMS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📝 Format Stock SMS": {
+      "main": [
+        [
+          {
+            "node": "📤 Send SMS (Yuboto)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📝 Format Price SMS": {
+      "main": [
+        [
+          {
+            "node": "📤 Send SMS (Yuboto)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📝 Format General SMS": {
+      "main": [
+        [
+          {
+            "node": "📤 Send SMS (Yuboto)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📤 Send SMS (Yuboto)": {
+      "main": [
+        [
+          {
+            "node": "📤 Respond OK",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "📊 Log to Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "SMS",
+      "createdAt": "2024-01-01T00:00:00.000Z"
+    },
+    {
+      "name": "Yuboto",
+      "createdAt": "2024-01-01T00:00:00.000Z"
+    }
+  ]
+}

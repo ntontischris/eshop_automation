@@ -1,0 +1,1357 @@
+{
+  "name": "🤖 AI Customer Service Agent - Complete",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ai-customer-service",
+        "options": {
+          "responseMode": "responseNode"
+        }
+      },
+      "id": "webhook-main",
+      "name": "🌐 Webhook - Customer Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 400],
+      "webhookId": "ai-customer-service"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ai-voice-agent",
+        "options": {
+          "responseMode": "responseNode"
+        }
+      },
+      "id": "webhook-voice",
+      "name": "📞 Webhook - Voice (Vapi)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 600],
+      "webhookId": "ai-voice-agent"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ai-sms-agent",
+        "options": {
+          "responseMode": "responseNode"
+        }
+      },
+      "id": "webhook-sms",
+      "name": "📱 Webhook - SMS (Yuboto)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 800],
+      "webhookId": "ai-sms-agent"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize input from all channels\nconst input = $input.first().json;\n\nlet channel = 'chat';\nlet customerMessage = '';\nlet customerId = '';\nlet customerPhone = '';\nlet customerEmail = '';\nlet sessionId = '';\nlet metadata = {};\n\n// Detect channel and extract data\nif (input.message?.type === 'voice' || input.call) {\n  // Vapi Voice\n  channel = 'voice';\n  customerMessage = input.message?.content || input.transcript || '';\n  customerPhone = input.call?.customer?.number || input.phone || '';\n  sessionId = input.call?.id || input.session_id || '';\n  metadata = { call_id: input.call?.id };\n} else if (input.sms || input.from_number) {\n  // SMS from Yuboto\n  channel = 'sms';\n  customerMessage = input.sms?.text || input.message || input.text || '';\n  customerPhone = input.sms?.from || input.from_number || '';\n  sessionId = input.message_id || '';\n} else {\n  // Chat widget / API\n  channel = 'chat';\n  customerMessage = input.message || input.query || input.text || '';\n  customerId = input.customer_id || input.user_id || '';\n  customerEmail = input.email || '';\n  customerPhone = input.phone || '';\n  sessionId = input.session_id || input.conversation_id || '';\n}\n\n// Extract potential order number from message\nconst orderMatch = customerMessage.match(/#?(\\d{4,})/)\nconst potentialOrderNumber = orderMatch ? orderMatch[1] : null;\n\n// Extract potential product SKU\nconst skuMatch = customerMessage.match(/SKU[:\\s]*(\\w+)/i);\nconst potentialSKU = skuMatch ? skuMatch[1] : null;\n\nreturn {\n  json: {\n    channel,\n    customerMessage,\n    customerId,\n    customerPhone,\n    customerEmail,\n    sessionId,\n    potentialOrderNumber,\n    potentialSKU,\n    metadata,\n    timestamp: new Date().toISOString(),\n    language: 'el' // Default Greek\n  }\n};"
+      },
+      "id": "normalize-input",
+      "name": "🔄 Normalize Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 600]
+    },
+    {
+      "parameters": {
+        "agent": "toolsAgent",
+        "promptType": "define",
+        "text": "={{ $json.customerMessage }}",
+        "options": {
+          "systemMessage": "Είσαι ο AI Βοηθός Εξυπηρέτησης Πελατών για το ηλεκτρονικό μας κατάστημα. \n\n## ΟΔΗΓΙΕΣ\n\n### Γλώσσα\n- Απάντα ΠΑΝΤΑ στα Ελληνικά εκτός αν ο πελάτης γράψει σε άλλη γλώσσα\n- Να είσαι φιλικός, επαγγελματικός και αποτελεσματικός\n- Χρησιμοποίησε ευγενικό ύφος αλλά όχι υπερβολικά τυπικό\n\n### Δυνατότητες\nΜπορείς να βοηθήσεις τους πελάτες με:\n1. **Έλεγχο διαθεσιμότητας** - Χρησιμοποίησε το check_stock tool\n2. **Παρακολούθηση παραγγελίας** - Χρησιμοποίησε το track_order tool\n3. **Αναζήτηση προϊόντων** - Χρησιμοποίησε το search_products tool\n4. **Πληροφορίες τιμών** - Χρησιμοποίησε το get_product_info tool\n5. **Αίτημα επιστροφής** - Χρησιμοποίησε το create_return_request tool\n6. **Ειδοποίηση διαθεσιμότητας** - Χρησιμοποίησε το set_stock_alert tool\n\n### Κανόνες\n- ΠΑΝΤΑ χρησιμοποίησε τα tools για να πάρεις πραγματικά δεδομένα\n- ΜΗΝ επινοείς πληροφορίες για stock, τιμές ή παραγγελίες\n- Αν δεν μπορείς να βοηθήσεις, πρότεινε επικοινωνία με ανθρώπινο agent\n- Για πολύπλοκα θέματα, ζήτα email/τηλέφωνο για callback\n\n### Context\n- Channel: {{ $json.channel }}\n- Customer Phone: {{ $json.customerPhone }}\n- Customer Email: {{ $json.customerEmail }}\n- Potential Order #: {{ $json.potentialOrderNumber }}\n- Session: {{ $json.sessionId }}"
+        }
+      },
+      "id": "ai-agent",
+      "name": "🧠 AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.6,
+      "position": [800, 600]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "temperature": 0.3,
+          "maxTokens": 1024
+        }
+      },
+      "id": "anthropic-model",
+      "name": "Claude Sonnet",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.2,
+      "position": [600, 800],
+      "credentials": {
+        "anthropicApi": {
+          "id": "ANTHROPIC_CREDENTIAL_ID",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "name": "check_stock",
+        "description": "Ελέγχει τη διαθεσιμότητα (stock) ενός προϊόντος. Χρησιμοποίησε όταν ο πελάτης ρωτάει αν υπάρχει κάτι διαθέσιμο, πόσα κομμάτια έχετε, αν είναι σε stock κλπ.",
+        "workflowId": "={{ $workflow.id }}",
+        "fields": {
+          "values": [
+            {
+              "name": "product_identifier",
+              "description": "Το όνομα του προϊόντος, SKU, ή ID. Μπορεί να είναι μερικό όνομα.",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      },
+      "id": "tool-check-stock",
+      "name": "🔧 Tool: Check Stock",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 1.1,
+      "position": [750, 850]
+    },
+    {
+      "parameters": {
+        "name": "track_order",
+        "description": "Βρίσκει την κατάσταση μιας παραγγελίας. Χρησιμοποίησε όταν ο πελάτης ρωτάει που είναι η παραγγελία του, τι γίνεται με την παραγγελία, πότε θα παραδοθεί κλπ.",
+        "workflowId": "={{ $workflow.id }}",
+        "fields": {
+          "values": [
+            {
+              "name": "order_number",
+              "description": "Ο αριθμός παραγγελίας (π.χ. 12345)",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "customer_email",
+              "description": "Email πελάτη για επιβεβαίωση (προαιρετικό)",
+              "type": "string",
+              "required": false
+            }
+          ]
+        }
+      },
+      "id": "tool-track-order",
+      "name": "🔧 Tool: Track Order",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 1.1,
+      "position": [900, 850]
+    },
+    {
+      "parameters": {
+        "name": "search_products",
+        "description": "Αναζητά προϊόντα στο κατάστημα. Χρησιμοποίησε όταν ο πελάτης ψάχνει για κάτι συγκεκριμένο, θέλει να δει επιλογές, ρωτάει τι έχετε σε κάποια κατηγορία.",
+        "workflowId": "={{ $workflow.id }}",
+        "fields": {
+          "values": [
+            {
+              "name": "search_query",
+              "description": "Τι ψάχνει ο πελάτης (π.χ. 'laptop gaming', 'κινητό samsung')",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "category",
+              "description": "Κατηγορία προϊόντος (προαιρετικό)",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "max_price",
+              "description": "Μέγιστη τιμή budget (προαιρετικό)",
+              "type": "number",
+              "required": false
+            },
+            {
+              "name": "min_price",
+              "description": "Ελάχιστη τιμή (προαιρετικό)",
+              "type": "number",
+              "required": false
+            }
+          ]
+        }
+      },
+      "id": "tool-search-products",
+      "name": "🔧 Tool: Search Products",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 1.1,
+      "position": [1050, 850]
+    },
+    {
+      "parameters": {
+        "name": "get_product_info",
+        "description": "Παίρνει αναλυτικές πληροφορίες για ένα συγκεκριμένο προϊόν (τιμή, περιγραφή, χαρακτηριστικά, διαθεσιμότητα). Χρησιμοποίησε όταν ο πελάτης θέλει λεπτομέρειες για ένα προϊόν.",
+        "workflowId": "={{ $workflow.id }}",
+        "fields": {
+          "values": [
+            {
+              "name": "product_id",
+              "description": "Το ID ή SKU του προϊόντος",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      },
+      "id": "tool-product-info",
+      "name": "🔧 Tool: Get Product Info",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 1.1,
+      "position": [750, 950]
+    },
+    {
+      "parameters": {
+        "name": "create_return_request",
+        "description": "Δημιουργεί αίτημα επιστροφής προϊόντος. Χρησιμοποίησε όταν ο πελάτης θέλει να επιστρέψει κάτι, δεν είναι ευχαριστημένος, θέλει αντικατάσταση.",
+        "workflowId": "={{ $workflow.id }}",
+        "fields": {
+          "values": [
+            {
+              "name": "order_number",
+              "description": "Αριθμός παραγγελίας",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "reason",
+              "description": "Λόγος επιστροφής",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "product_sku",
+              "description": "SKU του προϊόντος προς επιστροφή (αν είναι συγκεκριμένο)",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "customer_email",
+              "description": "Email πελάτη για επικοινωνία",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      },
+      "id": "tool-return-request",
+      "name": "🔧 Tool: Create Return",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 1.1,
+      "position": [900, 950]
+    },
+    {
+      "parameters": {
+        "name": "set_stock_alert",
+        "description": "Εγγράφει τον πελάτη για ειδοποίηση όταν ένα προϊόν γίνει διαθέσιμο. Χρησιμοποίησε όταν κάτι δεν είναι διαθέσιμο και ο πελάτης θέλει να ενημερωθεί.",
+        "workflowId": "={{ $workflow.id }}",
+        "fields": {
+          "values": [
+            {
+              "name": "product_id",
+              "description": "ID ή SKU του προϊόντος",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "customer_email",
+              "description": "Email για την ειδοποίηση",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "customer_phone",
+              "description": "Τηλέφωνο για SMS ειδοποίηση",
+              "type": "string",
+              "required": false
+            }
+          ]
+        }
+      },
+      "id": "tool-stock-alert",
+      "name": "🔧 Tool: Stock Alert",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 1.1,
+      "position": [1050, 950]
+    },
+    {
+      "parameters": {
+        "name": "transfer_to_human",
+        "description": "Μεταφέρει τη συνομιλία σε ανθρώπινο agent. Χρησιμοποίησε όταν το θέμα είναι πολύπλοκο, ο πελάτης είναι δυσαρεστημένος, ή ζητάει ρητά να μιλήσει με άνθρωπο.",
+        "workflowId": "={{ $workflow.id }}",
+        "fields": {
+          "values": [
+            {
+              "name": "reason",
+              "description": "Λόγος μεταφοράς",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "priority",
+              "description": "Προτεραιότητα: low, medium, high, urgent",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "summary",
+              "description": "Περίληψη της συνομιλίας μέχρι τώρα",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      },
+      "id": "tool-human-transfer",
+      "name": "🔧 Tool: Human Transfer",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 1.1,
+      "position": [1200, 850]
+    },
+    {
+      "parameters": {
+        "memory": "windowBufferMemory",
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $json.sessionId || $json.customerPhone || 'default' }}"
+      },
+      "id": "memory",
+      "name": "💾 Chat Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.2,
+      "position": [600, 900]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "chat",
+              "leftValue": "={{ $('🔄 Normalize Input').item.json.channel }}",
+              "rightValue": "chat",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "voice",
+              "leftValue": "={{ $('🔄 Normalize Input').item.json.channel }}",
+              "rightValue": "voice",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "sms",
+              "leftValue": "={{ $('🔄 Normalize Input').item.json.channel }}",
+              "rightValue": "sms",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        }
+      },
+      "id": "route-response",
+      "name": "🔀 Route by Channel",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1100, 600]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"response\": \"{{ $('🧠 AI Agent').item.json.output }}\",\n  \"session_id\": \"{{ $('🔄 Normalize Input').item.json.sessionId }}\",\n  \"channel\": \"chat\",\n  \"timestamp\": \"{{ $now.toISO() }}\"\n}",
+        "options": {}
+      },
+      "id": "respond-chat",
+      "name": "📤 Respond Chat",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1350, 450]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"assistant\": {\n    \"content\": \"{{ $('🧠 AI Agent').item.json.output }}\",\n    \"endCall\": false\n  }\n}",
+        "options": {}
+      },
+      "id": "respond-voice",
+      "name": "📤 Respond Voice (Vapi)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1350, 600]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://omni.yuboto.com/api/v1/send",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $credentials.yubotoApi.apiKey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"to\": \"{{ $('🔄 Normalize Input').item.json.customerPhone }}\",\n  \"text\": \"{{ $('🧠 AI Agent').item.json.output.substring(0, 160) }}\",\n  \"from\": \"ESHOP\"\n}",
+        "options": {}
+      },
+      "id": "send-sms",
+      "name": "📱 Send SMS Response",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1350, 750]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"sms_sent\": true\n}",
+        "options": {}
+      },
+      "id": "respond-sms",
+      "name": "📤 Respond SMS Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1550, 750]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://hooks.slack.com/services/YOUR_SLACK_WEBHOOK",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"text\": \"🆕 Νέα συνομιλία AI Agent\",\n  \"blocks\": [\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": \"*Channel:* {{ $('🔄 Normalize Input').item.json.channel }}\\n*Customer:* {{ $('🔄 Normalize Input').item.json.customerPhone || $('🔄 Normalize Input').item.json.customerEmail || 'Unknown' }}\\n*Message:* {{ $('🔄 Normalize Input').item.json.customerMessage }}\\n*AI Response:* {{ $('🧠 AI Agent').item.json.output.substring(0, 500) }}\"\n      }\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "log-slack",
+      "name": "📝 Log to Slack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1350, 900]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "Conversations"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $now.toISO() }}",
+            "Channel": "={{ $('🔄 Normalize Input').item.json.channel }}",
+            "Customer": "={{ $('🔄 Normalize Input').item.json.customerPhone || $('🔄 Normalize Input').item.json.customerEmail }}",
+            "Message": "={{ $('🔄 Normalize Input').item.json.customerMessage }}",
+            "AI Response": "={{ $('🧠 AI Agent').item.json.output }}",
+            "Session ID": "={{ $('🔄 Normalize Input').item.json.sessionId }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "log-sheets",
+      "name": "📊 Log to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [1350, 1050],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_CREDENTIAL_ID",
+          "name": "Google Sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tool-check-stock",
+        "options": {
+          "responseMode": "responseNode"
+        }
+      },
+      "id": "sub-webhook-stock",
+      "name": "⚡ Sub: Check Stock Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 1200],
+      "webhookId": "tool-check-stock"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $credentials.woocommerceApi.url }}/wp-json/wc/v3/products",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "search",
+              "value": "={{ $json.body.product_identifier }}"
+            },
+            {
+              "name": "per_page",
+              "value": "5"
+            },
+            {
+              "name": "status",
+              "value": "publish"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "woo-search-stock",
+      "name": "🛒 WooCommerce: Search Products",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [450, 1200],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "WOO_CREDENTIAL_ID",
+          "name": "WooCommerce API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const products = $input.first().json;\n\nif (!products || products.length === 0) {\n  return {\n    json: {\n      found: false,\n      message: \"Δεν βρέθηκε προϊόν με αυτό το όνομα. Μπορείτε να δοκιμάσετε με διαφορετικό όνομα ή να περιγράψετε τι ψάχνετε.\"\n    }\n  };\n}\n\nconst results = products.map(p => ({\n  id: p.id,\n  name: p.name,\n  sku: p.sku || 'N/A',\n  price: p.price + '€',\n  regular_price: p.regular_price + '€',\n  stock_status: p.stock_status,\n  stock_quantity: p.stock_quantity || 0,\n  in_stock: p.stock_status === 'instock',\n  backorders_allowed: p.backorders !== 'no',\n  manage_stock: p.manage_stock\n}));\n\nconst inStockProducts = results.filter(p => p.in_stock);\nconst outOfStock = results.filter(p => !p.in_stock);\n\nlet message = '';\n\nif (inStockProducts.length > 0) {\n  message = `✅ Βρέθηκαν ${inStockProducts.length} διαθέσιμα προϊόντα:\\n`;\n  inStockProducts.forEach(p => {\n    message += `\\n• **${p.name}** (${p.sku})\\n  Τιμή: ${p.price}${p.stock_quantity ? ` | Stock: ${p.stock_quantity} τεμάχια` : ' | Σε stock'}\\n`;\n  });\n}\n\nif (outOfStock.length > 0) {\n  message += `\\n❌ Μη διαθέσιμα: ${outOfStock.map(p => p.name).join(', ')}`;\n}\n\nreturn {\n  json: {\n    found: true,\n    total_results: results.length,\n    in_stock_count: inStockProducts.length,\n    products: results,\n    message: message\n  }\n};"
+      },
+      "id": "format-stock-response",
+      "name": "📋 Format Stock Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [700, 1200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "respond-stock-tool",
+      "name": "📤 Respond Stock Tool",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [950, 1200]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tool-track-order",
+        "options": {
+          "responseMode": "responseNode"
+        }
+      },
+      "id": "sub-webhook-order",
+      "name": "⚡ Sub: Track Order Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 1400],
+      "webhookId": "tool-track-order"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $credentials.woocommerceApi.url }}/wp-json/wc/v3/orders/{{ $json.body.order_number }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "id": "woo-get-order",
+      "name": "🛒 WooCommerce: Get Order",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [450, 1400],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "WOO_CREDENTIAL_ID",
+          "name": "WooCommerce API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\n\nif (response.statusCode === 404 || !response.body || response.body.code === 'woocommerce_rest_shop_order_invalid_id') {\n  return {\n    json: {\n      found: false,\n      message: \"❌ Δεν βρέθηκε παραγγελία με αυτόν τον αριθμό. Παρακαλώ ελέγξτε τον αριθμό και δοκιμάστε ξανά.\"\n    }\n  };\n}\n\nconst order = response.body;\n\n// Status translations\nconst statusMap = {\n  'pending': '⏳ Εκκρεμεί πληρωμή',\n  'processing': '📦 Σε επεξεργασία',\n  'on-hold': '⏸️ Σε αναμονή',\n  'completed': '✅ Ολοκληρώθηκε',\n  'cancelled': '❌ Ακυρώθηκε',\n  'refunded': '💰 Επιστροφή χρημάτων',\n  'failed': '❌ Αποτυχία',\n  'shipped': '🚚 Απεστάλη',\n  'delivered': '📬 Παραδόθηκε'\n};\n\nconst status = statusMap[order.status] || order.status;\n\n// Format items\nconst items = order.line_items.map(item => \n  `• ${item.name} x${item.quantity} - ${item.total}€`\n).join('\\n');\n\n// Shipping info\nconst shipping = order.shipping || {};\nconst shippingAddress = [shipping.address_1, shipping.city, shipping.postcode].filter(Boolean).join(', ');\n\n// Tracking (if available via meta)\nconst trackingMeta = order.meta_data?.find(m => m.key === '_tracking_number' || m.key === 'tracking_number');\nconst trackingNumber = trackingMeta?.value || null;\n\nlet message = `📦 **Παραγγελία #${order.id}**\\n\\n`;\nmessage += `**Κατάσταση:** ${status}\\n`;\nmessage += `**Ημερομηνία:** ${new Date(order.date_created).toLocaleDateString('el-GR')}\\n`;\nmessage += `**Σύνολο:** ${order.total}€\\n\\n`;\nmessage += `**Προϊόντα:**\\n${items}\\n\\n`;\n\nif (shippingAddress) {\n  message += `**Διεύθυνση αποστολής:** ${shippingAddress}\\n`;\n}\n\nif (trackingNumber) {\n  message += `\\n🚚 **Tracking Number:** ${trackingNumber}`;\n}\n\nif (order.status === 'processing') {\n  message += `\\n\\nℹ️ Η παραγγελία σας ετοιμάζεται και θα αποσταλεί σύντομα!`;\n} else if (order.status === 'completed' || order.status === 'shipped') {\n  message += `\\n\\n📬 Η παραγγελία σας έχει αποσταλεί! Αναμένετε παράδοση εντός 1-3 εργάσιμων ημερών.`;\n}\n\nreturn {\n  json: {\n    found: true,\n    order_id: order.id,\n    status: order.status,\n    status_display: status,\n    total: order.total,\n    date: order.date_created,\n    items: order.line_items.length,\n    tracking_number: trackingNumber,\n    message: message\n  }\n};"
+      },
+      "id": "format-order-response",
+      "name": "📋 Format Order Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [700, 1400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "respond-order-tool",
+      "name": "📤 Respond Order Tool",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [950, 1400]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tool-search-products",
+        "options": {
+          "responseMode": "responseNode"
+        }
+      },
+      "id": "sub-webhook-search",
+      "name": "⚡ Sub: Search Products Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 1600],
+      "webhookId": "tool-search-products"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $credentials.woocommerceApi.url }}/wp-json/wc/v3/products",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "search",
+              "value": "={{ $json.body.search_query }}"
+            },
+            {
+              "name": "per_page",
+              "value": "10"
+            },
+            {
+              "name": "status",
+              "value": "publish"
+            },
+            {
+              "name": "orderby",
+              "value": "popularity"
+            },
+            {
+              "name": "min_price",
+              "value": "={{ $json.body.min_price || '' }}"
+            },
+            {
+              "name": "max_price",
+              "value": "={{ $json.body.max_price || '' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "woo-search-products",
+      "name": "🛒 WooCommerce: Search Catalog",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [450, 1600],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "WOO_CREDENTIAL_ID",
+          "name": "WooCommerce API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const products = $input.first().json;\n\nif (!products || products.length === 0) {\n  return {\n    json: {\n      found: false,\n      message: \"🔍 Δεν βρέθηκαν προϊόντα με αυτά τα κριτήρια. Δοκιμάστε με διαφορετικούς όρους αναζήτησης.\"\n    }\n  };\n}\n\nconst results = products.map((p, index) => ({\n  position: index + 1,\n  id: p.id,\n  name: p.name,\n  sku: p.sku || 'N/A',\n  price: p.price,\n  regular_price: p.regular_price,\n  sale_price: p.sale_price,\n  on_sale: p.on_sale,\n  stock_status: p.stock_status,\n  in_stock: p.stock_status === 'instock',\n  short_description: p.short_description?.replace(/<[^>]*>/g, '').substring(0, 100) || '',\n  categories: p.categories?.map(c => c.name).join(', ') || '',\n  permalink: p.permalink,\n  images: p.images?.[0]?.src || null\n}));\n\nlet message = `🔍 **Βρέθηκαν ${results.length} προϊόντα:**\\n\\n`;\n\nresults.forEach(p => {\n  const priceDisplay = p.on_sale \n    ? `~~${p.regular_price}€~~ **${p.sale_price}€** 🏷️`\n    : `${p.price}€`;\n  \n  const stockIcon = p.in_stock ? '✅' : '❌';\n  \n  message += `**${p.position}. ${p.name}**\\n`;\n  message += `   Τιμή: ${priceDisplay} | ${stockIcon} ${p.in_stock ? 'Διαθέσιμο' : 'Εξαντλήθηκε'}\\n`;\n  if (p.short_description) {\n    message += `   ${p.short_description}...\\n`;\n  }\n  message += `\\n`;\n});\n\nmessage += `\\n💡 Για περισσότερες πληροφορίες, πείτε μου τον αριθμό του προϊόντος που σας ενδιαφέρει.`;\n\nreturn {\n  json: {\n    found: true,\n    total_results: results.length,\n    products: results,\n    message: message\n  }\n};"
+      },
+      "id": "format-search-response",
+      "name": "📋 Format Search Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [700, 1600]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "respond-search-tool",
+      "name": "📤 Respond Search Tool",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [950, 1600]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tool-get-product-info",
+        "options": {
+          "responseMode": "responseNode"
+        }
+      },
+      "id": "sub-webhook-product-info",
+      "name": "⚡ Sub: Get Product Info Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 1800],
+      "webhookId": "tool-get-product-info"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $credentials.woocommerceApi.url }}/wp-json/wc/v3/products/{{ $json.body.product_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {}
+      },
+      "id": "woo-get-product",
+      "name": "🛒 WooCommerce: Get Product",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [450, 1800],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "WOO_CREDENTIAL_ID",
+          "name": "WooCommerce API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const product = $input.first().json;\n\nif (!product || product.code === 'woocommerce_rest_product_invalid_id') {\n  return {\n    json: {\n      found: false,\n      message: \"❌ Δεν βρέθηκε προϊόν με αυτό το ID.\"\n    }\n  };\n}\n\n// Clean HTML from description\nconst cleanDescription = (html) => {\n  return html?.replace(/<[^>]*>/g, '').trim().substring(0, 500) || '';\n};\n\n// Format attributes\nconst attributes = product.attributes?.map(attr => \n  `• ${attr.name}: ${attr.options?.join(', ') || 'N/A'}`\n).join('\\n') || 'Δεν υπάρχουν χαρακτηριστικά';\n\nconst priceDisplay = product.on_sale \n  ? `~~${product.regular_price}€~~ **${product.sale_price}€** 🏷️ ΕΚΠΤΩΣΗ!`\n  : `${product.price}€`;\n\nconst stockDisplay = product.stock_status === 'instock'\n  ? `✅ Διαθέσιμο${product.stock_quantity ? ` (${product.stock_quantity} τεμάχια)` : ''}`\n  : product.stock_status === 'onbackorder' \n    ? '⏳ Κατόπιν παραγγελίας'\n    : '❌ Εξαντλήθηκε';\n\nlet message = `📦 **${product.name}**\\n\\n`;\nmessage += `**Τιμή:** ${priceDisplay}\\n`;\nmessage += `**Διαθεσιμότητα:** ${stockDisplay}\\n`;\nmessage += `**SKU:** ${product.sku || 'N/A'}\\n\\n`;\n\nif (product.short_description) {\n  message += `**Σύντομη περιγραφή:**\\n${cleanDescription(product.short_description)}\\n\\n`;\n}\n\nif (product.attributes?.length > 0) {\n  message += `**Χαρακτηριστικά:**\\n${attributes}\\n\\n`;\n}\n\nif (product.categories?.length > 0) {\n  message += `**Κατηγορίες:** ${product.categories.map(c => c.name).join(', ')}\\n`;\n}\n\nmessage += `\\n🔗 [Δείτε το προϊόν](${product.permalink})`;\n\nreturn {\n  json: {\n    found: true,\n    id: product.id,\n    name: product.name,\n    sku: product.sku,\n    price: product.price,\n    regular_price: product.regular_price,\n    sale_price: product.sale_price,\n    on_sale: product.on_sale,\n    stock_status: product.stock_status,\n    stock_quantity: product.stock_quantity,\n    description: cleanDescription(product.description),\n    short_description: cleanDescription(product.short_description),\n    attributes: product.attributes,\n    categories: product.categories?.map(c => c.name),\n    permalink: product.permalink,\n    image: product.images?.[0]?.src,\n    message: message\n  }\n};"
+      },
+      "id": "format-product-info-response",
+      "name": "📋 Format Product Info Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [700, 1800]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "respond-product-info-tool",
+      "name": "📤 Respond Product Info Tool",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [950, 1800]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tool-create-return",
+        "options": {
+          "responseMode": "responseNode"
+        }
+      },
+      "id": "sub-webhook-return",
+      "name": "⚡ Sub: Create Return Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 2000],
+      "webhookId": "tool-create-return"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json.body;\n\n// Generate return request ID\nconst returnId = 'RET-' + Date.now().toString(36).toUpperCase();\n\n// In production, this would:\n// 1. Create a return request in your database/system\n// 2. Send email to customer\n// 3. Notify warehouse/support team\n// 4. Update order meta in WooCommerce\n\nconst returnRequest = {\n  return_id: returnId,\n  order_number: input.order_number,\n  reason: input.reason,\n  product_sku: input.product_sku || 'All items',\n  customer_email: input.customer_email,\n  status: 'pending_review',\n  created_at: new Date().toISOString()\n};\n\nconst message = `✅ **Αίτημα Επιστροφής Καταχωρήθηκε**\n\n**Αριθμός Αιτήματος:** ${returnId}\n**Παραγγελία:** #${input.order_number}\n**Λόγος:** ${input.reason}\n\n📧 Θα λάβετε email επιβεβαίωσης στο ${input.customer_email} με τις οδηγίες επιστροφής.\n\n⏱️ Η ομάδα μας θα επεξεργαστεί το αίτημά σας εντός 24 ωρών.\n\nΑν έχετε ερωτήσεις, αναφέρετε τον αριθμό αιτήματος: **${returnId}**`;\n\nreturn {\n  json: {\n    success: true,\n    return_request: returnRequest,\n    message: message\n  }\n};"
+      },
+      "id": "process-return-request",
+      "name": "📋 Process Return Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 2000]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://hooks.slack.com/services/YOUR_SLACK_WEBHOOK",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"text\": \"🔄 Νέο Αίτημα Επιστροφής!\",\n  \"attachments\": [{\n    \"color\": \"#ff9800\",\n    \"fields\": [\n      {\"title\": \"Return ID\", \"value\": \"{{ $json.return_request.return_id }}\", \"short\": true},\n      {\"title\": \"Order #\", \"value\": \"{{ $json.return_request.order_number }}\", \"short\": true},\n      {\"title\": \"Reason\", \"value\": \"{{ $json.return_request.reason }}\", \"short\": false},\n      {\"title\": \"Customer\", \"value\": \"{{ $json.return_request.customer_email }}\", \"short\": true}\n    ]\n  }]\n}",
+        "options": {}
+      },
+      "id": "notify-return-slack",
+      "name": "📢 Notify Team - Return",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 2000]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($('📋 Process Return Request').item.json) }}",
+        "options": {}
+      },
+      "id": "respond-return-tool",
+      "name": "📤 Respond Return Tool",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [950, 2000]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tool-stock-alert",
+        "options": {
+          "responseMode": "responseNode"
+        }
+      },
+      "id": "sub-webhook-stock-alert",
+      "name": "⚡ Sub: Stock Alert Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 2200],
+      "webhookId": "tool-stock-alert"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json.body;\n\n// Generate alert ID\nconst alertId = 'ALERT-' + Date.now().toString(36).toUpperCase();\n\n// In production, this would:\n// 1. Store the alert in database\n// 2. Set up a trigger when product stock changes\n// 3. Send notification when stock > 0\n\nconst stockAlert = {\n  alert_id: alertId,\n  product_id: input.product_id,\n  customer_email: input.customer_email || null,\n  customer_phone: input.customer_phone || null,\n  notification_method: input.customer_phone ? 'sms' : 'email',\n  status: 'active',\n  created_at: new Date().toISOString()\n};\n\nconst contactMethod = input.customer_phone \n  ? `SMS στο ${input.customer_phone}`\n  : input.customer_email \n    ? `email στο ${input.customer_email}`\n    : 'επικοινωνία';\n\nconst message = `🔔 **Ειδοποίηση Διαθεσιμότητας Ενεργοποιήθηκε**\n\n**Κωδικός Ειδοποίησης:** ${alertId}\n**Προϊόν ID:** ${input.product_id}\n\n✅ Θα σας ενημερώσουμε με ${contactMethod} μόλις το προϊόν γίνει διαθέσιμο!\n\nΜπορείτε να ακυρώσετε την ειδοποίηση οποιαδήποτε στιγμή αναφέροντας τον κωδικό: **${alertId}**`;\n\nreturn {\n  json: {\n    success: true,\n    stock_alert: stockAlert,\n    message: message\n  }\n};"
+      },
+      "id": "process-stock-alert",
+      "name": "📋 Process Stock Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 2200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "respond-stock-alert-tool",
+      "name": "📤 Respond Stock Alert Tool",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [700, 2200]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tool-human-transfer",
+        "options": {
+          "responseMode": "responseNode"
+        }
+      },
+      "id": "sub-webhook-human",
+      "name": "⚡ Sub: Human Transfer Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 2400],
+      "webhookId": "tool-human-transfer"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json.body;\n\nconst ticketId = 'TKT-' + Date.now().toString(36).toUpperCase();\n\nconst priorityEmoji = {\n  'low': '🟢',\n  'medium': '🟡',\n  'high': '🟠',\n  'urgent': '🔴'\n};\n\nconst transferRequest = {\n  ticket_id: ticketId,\n  reason: input.reason,\n  priority: input.priority || 'medium',\n  summary: input.summary,\n  status: 'awaiting_agent',\n  created_at: new Date().toISOString()\n};\n\nconst emoji = priorityEmoji[input.priority] || '🟡';\n\nconst message = `👤 **Μεταφορά σε Ανθρώπινο Agent**\n\n**Αριθμός Ticket:** ${ticketId}\n**Προτεραιότητα:** ${emoji} ${(input.priority || 'medium').toUpperCase()}\n\n📞 Ένας εκπρόσωπός μας θα επικοινωνήσει μαζί σας σύντομα.\n\n**Εκτιμώμενος χρόνος απόκρισης:**\n${input.priority === 'urgent' ? '• ⚡ Εντός 15 λεπτών' : input.priority === 'high' ? '• Εντός 1 ώρας' : '• Εντός 2-4 ωρών'}\n\nΜπορείτε να αναφέρετε τον αριθμό ticket **${ticketId}** για ταχύτερη εξυπηρέτηση.`;\n\nreturn {\n  json: {\n    success: true,\n    transfer_request: transferRequest,\n    message: message\n  }\n};"
+      },
+      "id": "process-human-transfer",
+      "name": "📋 Process Human Transfer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 2400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://hooks.slack.com/services/YOUR_SLACK_WEBHOOK",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"text\": \"🚨 Human Agent Requested!\",\n  \"attachments\": [{\n    \"color\": \"{{ $json.transfer_request.priority === 'urgent' ? '#dc3545' : $json.transfer_request.priority === 'high' ? '#fd7e14' : '#ffc107' }}\",\n    \"fields\": [\n      {\"title\": \"Ticket ID\", \"value\": \"{{ $json.transfer_request.ticket_id }}\", \"short\": true},\n      {\"title\": \"Priority\", \"value\": \"{{ $json.transfer_request.priority.toUpperCase() }}\", \"short\": true},\n      {\"title\": \"Reason\", \"value\": \"{{ $json.transfer_request.reason }}\", \"short\": false},\n      {\"title\": \"Summary\", \"value\": \"{{ $json.transfer_request.summary }}\", \"short\": false}\n    ]\n  }]\n}",
+        "options": {}
+      },
+      "id": "notify-human-slack",
+      "name": "📢 Notify Team - Urgent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 2400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($('📋 Process Human Transfer').item.json) }}",
+        "options": {}
+      },
+      "id": "respond-human-tool",
+      "name": "📤 Respond Human Tool",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [950, 2400]
+    }
+  ],
+  "connections": {
+    "🌐 Webhook - Customer Request": {
+      "main": [
+        [
+          {
+            "node": "🔄 Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📞 Webhook - Voice (Vapi)": {
+      "main": [
+        [
+          {
+            "node": "🔄 Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📱 Webhook - SMS (Yuboto)": {
+      "main": [
+        [
+          {
+            "node": "🔄 Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔄 Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "🧠 AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🧠 AI Agent": {
+      "main": [
+        [
+          {
+            "node": "🔀 Route by Channel",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "📝 Log to Slack",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "📊 Log to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Sonnet": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "🧠 AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "💾 Chat Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "🧠 AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔧 Tool: Check Stock": {
+      "ai_tool": [
+        [
+          {
+            "node": "🧠 AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔧 Tool: Track Order": {
+      "ai_tool": [
+        [
+          {
+            "node": "🧠 AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔧 Tool: Search Products": {
+      "ai_tool": [
+        [
+          {
+            "node": "🧠 AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔧 Tool: Get Product Info": {
+      "ai_tool": [
+        [
+          {
+            "node": "🧠 AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔧 Tool: Create Return": {
+      "ai_tool": [
+        [
+          {
+            "node": "🧠 AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔧 Tool: Stock Alert": {
+      "ai_tool": [
+        [
+          {
+            "node": "🧠 AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔧 Tool: Human Transfer": {
+      "ai_tool": [
+        [
+          {
+            "node": "🧠 AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔀 Route by Channel": {
+      "main": [
+        [
+          {
+            "node": "📤 Respond Chat",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "📤 Respond Voice (Vapi)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "📱 Send SMS Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📱 Send SMS Response": {
+      "main": [
+        [
+          {
+            "node": "📤 Respond SMS Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "⚡ Sub: Check Stock Trigger": {
+      "main": [
+        [
+          {
+            "node": "🛒 WooCommerce: Search Products",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🛒 WooCommerce: Search Products": {
+      "main": [
+        [
+          {
+            "node": "📋 Format Stock Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📋 Format Stock Response": {
+      "main": [
+        [
+          {
+            "node": "📤 Respond Stock Tool",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "⚡ Sub: Track Order Trigger": {
+      "main": [
+        [
+          {
+            "node": "🛒 WooCommerce: Get Order",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🛒 WooCommerce: Get Order": {
+      "main": [
+        [
+          {
+            "node": "📋 Format Order Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📋 Format Order Response": {
+      "main": [
+        [
+          {
+            "node": "📤 Respond Order Tool",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "⚡ Sub: Search Products Trigger": {
+      "main": [
+        [
+          {
+            "node": "🛒 WooCommerce: Search Catalog",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🛒 WooCommerce: Search Catalog": {
+      "main": [
+        [
+          {
+            "node": "📋 Format Search Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📋 Format Search Response": {
+      "main": [
+        [
+          {
+            "node": "📤 Respond Search Tool",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "⚡ Sub: Get Product Info Trigger": {
+      "main": [
+        [
+          {
+            "node": "🛒 WooCommerce: Get Product",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🛒 WooCommerce: Get Product": {
+      "main": [
+        [
+          {
+            "node": "📋 Format Product Info Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📋 Format Product Info Response": {
+      "main": [
+        [
+          {
+            "node": "📤 Respond Product Info Tool",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "⚡ Sub: Create Return Trigger": {
+      "main": [
+        [
+          {
+            "node": "📋 Process Return Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📋 Process Return Request": {
+      "main": [
+        [
+          {
+            "node": "📢 Notify Team - Return",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📢 Notify Team - Return": {
+      "main": [
+        [
+          {
+            "node": "📤 Respond Return Tool",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "⚡ Sub: Stock Alert Trigger": {
+      "main": [
+        [
+          {
+            "node": "📋 Process Stock Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📋 Process Stock Alert": {
+      "main": [
+        [
+          {
+            "node": "📤 Respond Stock Alert Tool",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "⚡ Sub: Human Transfer Trigger": {
+      "main": [
+        [
+          {
+            "node": "📋 Process Human Transfer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📋 Process Human Transfer": {
+      "main": [
+        [
+          {
+            "node": "📢 Notify Team - Urgent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📢 Notify Team - Urgent": {
+      "main": [
+        [
+          {
+            "node": "📤 Respond Human Tool",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "AI Agent",
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z"
+    },
+    {
+      "name": "Customer Service",
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z"
+    },
+    {
+      "name": "WooCommerce",
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z"
+    }
+  ],
+  "triggerCount": 9,
+  "updatedAt": "2024-01-01T00:00:00.000Z",
+  "versionId": "1"
+}
